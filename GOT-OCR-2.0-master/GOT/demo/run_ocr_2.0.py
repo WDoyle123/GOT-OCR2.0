@@ -7,12 +7,17 @@ from io import BytesIO
 import requests
 import torch
 from PIL import Image
-from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                          CLIPImageProcessor, CLIPVisionModel,
-                          StoppingCriteria, TextStreamer)
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    CLIPImageProcessor,
+    CLIPVisionModel,
+    StoppingCriteria,
+    TextStreamer
+)
 
 from GOT.demo.process_results import punctuation_dict, svg_to_html
-from GOT.model import *
+from GOT.model import GOTQwenForCausalLM
 from GOT.model.plug.blip_process import BlipImageEvalProcessor
 from GOT.utils.conversation import SeparatorStyle, conv_templates
 from GOT.utils.utils import KeywordsStoppingCriteria, disable_torch_init
@@ -27,6 +32,7 @@ translation_table = str.maketrans(punctuation_dict)
 
 
 def load_image(image_file):
+    """Load an image from either a local file path or a URL."""
     if image_file.startswith("http") or image_file.startswith("https"):
         response = requests.get(image_file)
         image = Image.open(BytesIO(response.content)).convert("RGB")
@@ -36,13 +42,16 @@ def load_image(image_file):
 
 
 def eval_model(args):
+    """Run the model on an input image and save or render the OCR results."""
     disable_torch_init()
 
     model_name = os.path.expanduser(args.model_name)
     tokenizer = AutoTokenizer.from_pretrained(model_name, trust_remote_code=True)
-
     model = GOTQwenForCausalLM.from_pretrained(
-        model_name, low_cpu_mem_usage=True, use_safetensors=True, pad_token_id=151643
+        model_name,
+        low_cpu_mem_usage=True,
+        use_safetensors=True,
+        pad_token_id=151643
     ).eval()
     model.to(device="cpu", dtype=torch.float32)
 
@@ -76,9 +85,9 @@ def eval_model(args):
 
     if args.color:
         if args.type == "format":
-            qs = "[" + args.color + "]" + " " + "OCR with format: "
+            qs = "[" + args.color + "] " + "OCR with format: "
         else:
-            qs = "[" + args.color + "]" + " " + "OCR: "
+            qs = "[" + args.color + "] " + "OCR: "
 
     if use_im_start_end:
         qs = (
@@ -93,20 +102,18 @@ def eval_model(args):
 
     conv_mode = "mpt"
     args.conv_mode = conv_mode
-
     conv = conv_templates[conv_mode].copy()
     conv.append_message(conv.roles[0], qs)
     conv.append_message(conv.roles[1], None)
     prompt = conv.get_prompt()
-    print(prompt)
+
 
     inputs = tokenizer([prompt])
+    input_ids = torch.as_tensor(inputs.input_ids, device="cpu", dtype=torch.long)
 
     image_1 = image.copy()
     image_tensor = image_processor(image)
     image_tensor_1 = image_processor_high(image_1)
-
-    input_ids = torch.as_tensor(inputs.input_ids, device="cpu", dtype=torch.long)
 
     stop_str = conv.sep if conv.sep_style != SeparatorStyle.TWO else conv.sep2
     keywords = [stop_str]
@@ -115,9 +122,7 @@ def eval_model(args):
 
     output_ids = model.generate(
         input_ids,
-        images=[
-            (image_tensor.unsqueeze(0).float(), image_tensor_1.unsqueeze(0).float())
-        ],
+        images=[(image_tensor.unsqueeze(0).float(), image_tensor_1.unsqueeze(0).float())],
         do_sample=False,
         num_beams=1,
         no_repeat_ngram_size=20,
@@ -126,19 +131,21 @@ def eval_model(args):
         stopping_criteria=[stopping_criteria],
     )
 
+    outputs = tokenizer.decode(output_ids[0, input_ids.shape[1]:]).strip()
+    if outputs.endswith(stop_str):
+        outputs = outputs[: -len(stop_str)]
+    outputs = outputs.strip()
+
+    with open("ocr_output.txt", "w", encoding="utf-8") as out_f:
+        out_f.write(outputs)
+
     if args.render:
         print("==============rendering===============")
-        outputs = tokenizer.decode(output_ids[0, input_ids.shape[1] :]).strip()
-
-        if outputs.endswith(stop_str):
-            outputs = outputs[: -len(stop_str)]
-        outputs = outputs.strip()
-
         if "**kern" in outputs:
-            import cv2
-            import numpy as np
             import verovio
             from cairosvg import svg2png
+            import cv2
+            import numpy as np
 
             tk = verovio.toolkit()
             tk.loadData(outputs)
@@ -165,11 +172,11 @@ def eval_model(args):
                 left_num = outputs.count("\\left")
 
                 if right_num != left_num:
-                    outputs = outputs.replace("\left(", "(").replace("\\right)", ")")
-                    outputs = outputs.replace("\left[", "[").replace("\\right]", "]")
-                    outputs = outputs.replace("\left{", "{").replace("\\right}", "}")
-                    outputs = outputs.replace("\left|", "|").replace("\\right|", "|")
-                    outputs = outputs.replace("\left.", ".").replace("\\right.", ".")
+                    outputs = outputs.replace("\\left(", "(").replace("\\right)", ")")
+                    outputs = outputs.replace("\\left[", "[").replace("\\right]", "]")
+                    outputs = outputs.replace("\\left{", "{").replace("\\right}", "}")
+                    outputs = outputs.replace("\\left|", "|").replace("\\right|", "|")
+                    outputs = outputs.replace("\\left.", ".").replace("\\right.", ".")
 
                 outputs = outputs.replace('"', "``").replace("$", "")
 
@@ -183,6 +190,10 @@ def eval_model(args):
                     lines = web_f.read()
                     lines = lines.split("const text =")
                     new_web = lines[0] + "const text =" + gt + lines[1]
+
+                with open(html_path_2, "w") as web_f_new:
+                    web_f_new.write(new_web)
+
             else:
                 html_path = "./render_tools/" + "/tikz.html"
                 html_path_2 = "./results/demo.html"
@@ -212,8 +223,8 @@ def eval_model(args):
                     lines = lines.split("const text =")
                     new_web = lines[0] + gt + lines[1]
 
-            with open(html_path_2, "w") as web_f_new:
-                web_f_new.write(new_web)
+                with open(html_path_2, "w") as web_f_new:
+                    web_f_new.write(new_web)
 
 
 if __name__ == "__main__":
@@ -227,3 +238,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     eval_model(args)
+
