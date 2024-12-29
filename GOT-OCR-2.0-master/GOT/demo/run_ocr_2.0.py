@@ -128,7 +128,7 @@ def eval_model(args):
         no_repeat_ngram_size=20,
         streamer=streamer,
         max_new_tokens=32768,
-        stopping_criteria=[stopping_criteria],
+#        stopping_criteria=[stopping_criteria],
     )
 
     outputs = tokenizer.decode(output_ids[0, input_ids.shape[1]:]).strip()
