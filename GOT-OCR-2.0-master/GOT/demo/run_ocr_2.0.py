@@ -123,7 +123,7 @@ def eval_model(args):
     output_ids = model.generate(
         input_ids,
         images=[(image_tensor.unsqueeze(0).float(), image_tensor_1.unsqueeze(0).float())],
-        do_sample=True,
+        do_sample=False,
         num_beams=1,
         no_repeat_ngram_size=20,
         streamer=streamer,
