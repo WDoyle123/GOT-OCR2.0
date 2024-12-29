@@ -127,7 +127,7 @@ def eval_model(args):
         num_beams=1,
         no_repeat_ngram_size=20,
         streamer=streamer,
-        max_new_tokens=4096,
+        max_new_tokens=32768,
         stopping_criteria=[stopping_criteria],
     )
 
