@@ -123,12 +123,12 @@ def eval_model(args):
     output_ids = model.generate(
         input_ids,
         images=[(image_tensor.unsqueeze(0).float(), image_tensor_1.unsqueeze(0).float())],
-        do_sample=False,
+        do_sample=True,
         num_beams=1,
         no_repeat_ngram_size=20,
         streamer=streamer,
         max_new_tokens=4096,
-#        stopping_criteria=[stopping_criteria],
+        stopping_criteria=[stopping_criteria],
     )
 
     outputs = tokenizer.decode(output_ids[0, input_ids.shape[1]:]).strip()
